@@ -171,6 +171,9 @@ function renderKPIs(){
 }
 
 /* ---------- Gráfico de linha com brilho (reaproveitado do painel de Disponibilidade) ---------- */
+let HOVER = { chartGeral: null, chartExceto: null };
+let LAYOUT = {};
+
 function desenharLinha(canvasId, serie, corLinha, corGlow){
   const canvas = document.getElementById(canvasId);
   const dpr = window.devicePixelRatio || 1;
@@ -195,6 +198,9 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
   const plotW = w - padL - padR, plotH = h - padT - padB;
   const n = serie.length;
   const slot = plotW / n;
+  LAYOUT[canvasId] = { padL: padL, padR: padR, slot: slot, n: n, w: w, h: h };
+
+  const hoverIndex = HOVER[canvasId];
 
   const valores = serie.filter(d => d.valor !== null).map(d => d.valor);
   const minV = Math.min(...valores) * 0.85;
@@ -210,6 +216,12 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
     ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(w-padR, yy); ctx.stroke();
   });
   ctx.setLineDash([]);
+
+  // faixa de destaque da coluna em foco
+  if(hoverIndex !== null && hoverIndex >= 0 && hoverIndex < n){
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fillRect(padL + slot*hoverIndex, padT, slot, plotH);
+  }
 
   const pontos = serie.map(function(d, i){
     return { x: padL + slot*i + slot/2, y: d.valor === null ? null : y(d.valor), v: d.valor, i: i };
@@ -259,27 +271,29 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
       ctx.restore();
     }
     seg.forEach(function(p){
+      const destacado = p.i === hoverIndex;
       ctx.save();
       ctx.shadowColor = 'rgba(255,255,255,0.7)';
-      ctx.shadowBlur = 4;
+      ctx.shadowBlur = destacado ? 8 : 4;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 2, 0, Math.PI*2);
+      ctx.arc(p.x, p.y, destacado ? 4 : 2, 0, Math.PI*2);
       ctx.fillStyle = '#FFFFFF';
       ctx.fill();
       ctx.restore();
 
-      ctx.fillStyle = '#E7EAF0';
-      ctx.font = '600 10px IBM Plex Mono';
+      ctx.fillStyle = destacado ? '#FFFFFF' : '#E7EAF0';
+      ctx.font = (destacado ? '700 12px' : '600 10px') + ' IBM Plex Mono';
       ctx.textAlign = 'center';
-      ctx.fillText(p.v, p.x, p.y - (p.i % 2 === 0 ? 9 : 18));
+      ctx.fillText(p.v, p.x, p.y - (p.i % 2 === 0 ? 9 : 18) - (destacado ? 2 : 0));
     });
   });
 
   // eixo X
   serie.forEach(function(d, i){
     const x = padL + slot*i + slot/2;
-    ctx.fillStyle = 'rgba(139,145,163,0.75)';
-    ctx.font = '9px IBM Plex Mono';
+    const destacado = i === hoverIndex;
+    ctx.fillStyle = destacado ? '#FFFFFF' : 'rgba(139,145,163,0.75)';
+    ctx.font = (destacado ? '700 10px' : '9px') + ' IBM Plex Mono';
     ctx.textAlign = 'center';
     ctx.fillText(d.data, x, h - padB + 16);
   });
@@ -290,6 +304,34 @@ function desenharTudo(){
   desenharLinha('chartExceto', SERIE_EXCETO, '#4FE0BC', '#2ED3A6');
 }
 window.addEventListener('resize', desenharTudo);
+
+function configurarHover(canvasId, serieGetter, cor, glow){
+  const canvas = document.getElementById(canvasId);
+  canvas.style.cursor = 'pointer';
+  canvas.addEventListener('mousemove', function(e){
+    const layout = LAYOUT[canvasId];
+    if(!layout) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    let idx = null;
+    if(mx >= layout.padL && mx <= layout.w - layout.padR){
+      idx = Math.floor((mx - layout.padL) / layout.slot);
+      if(idx < 0 || idx >= layout.n) idx = null;
+    }
+    if(idx !== HOVER[canvasId]){
+      HOVER[canvasId] = idx;
+      desenharLinha(canvasId, serieGetter(), cor, glow);
+    }
+  });
+  canvas.addEventListener('mouseleave', function(){
+    if(HOVER[canvasId] !== null){
+      HOVER[canvasId] = null;
+      desenharLinha(canvasId, serieGetter(), cor, glow);
+    }
+  });
+}
+configurarHover('chartGeral', function(){ return SERIE_GERAL; }, '#5FA8FF', '#3B82F6');
+configurarHover('chartExceto', function(){ return SERIE_EXCETO; }, '#4FE0BC', '#2ED3A6');
 
 function tickClock(){
   const now = new Date();
