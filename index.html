@@ -162,6 +162,17 @@ function renderKPIs(){
     { label: 'Pico no período — Geral', value: maxG, accent: 'critico' },
     { label: 'Pico no período — Exceto críticos', value: maxE, accent: 'atencao' }
   ];
+
+  const selG = SELECIONADO.chartGeral, selE = SELECIONADO.chartExceto;
+  if(selG.size > 0){
+    const soma = Array.from(selG).reduce((s,i)=> s + (SERIE_GERAL[i] && SERIE_GERAL[i].valor || 0), 0);
+    kpiData.push({ label: 'Selecionado (' + selG.size + ' dia' + (selG.size>1?'s':'') + ') — Geral', value: soma, accent: 'blue' });
+  }
+  if(selE.size > 0){
+    const soma = Array.from(selE).reduce((s,i)=> s + (SERIE_EXCETO[i] && SERIE_EXCETO[i].valor || 0), 0);
+    kpiData.push({ label: 'Selecionado (' + selE.size + ' dia' + (selE.size>1?'s':'') + ') — Exceto críticos', value: soma, accent: 'normal' });
+  }
+
   document.getElementById('kpiGrid').innerHTML = kpiData.map(function(k){
     return '<div class="panel kpi accent-' + k.accent + '">' +
       '<div class="eyebrow">' + k.label + '</div>' +
@@ -172,6 +183,7 @@ function renderKPIs(){
 
 /* ---------- Gráfico de linha com brilho (reaproveitado do painel de Disponibilidade) ---------- */
 let HOVER = { chartGeral: null, chartExceto: null };
+let SELECIONADO = { chartGeral: new Set(), chartExceto: new Set() };
 let LAYOUT = {};
 
 function desenharLinha(canvasId, serie, corLinha, corGlow){
@@ -201,6 +213,7 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
   LAYOUT[canvasId] = { padL: padL, padR: padR, slot: slot, n: n, w: w, h: h };
 
   const hoverIndex = HOVER[canvasId];
+  const selecionadoSet = SELECIONADO[canvasId];
 
   const valores = serie.filter(d => d.valor !== null).map(d => d.valor);
   const minV = Math.min(...valores) * 0.85;
@@ -217,10 +230,12 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
   });
   ctx.setLineDash([]);
 
-  // faixa de destaque da coluna em foco
-  if(hoverIndex !== null && hoverIndex >= 0 && hoverIndex < n){
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    ctx.fillRect(padL + slot*hoverIndex, padT, slot, plotH);
+  // faixa de destaque das colunas em foco (hover) ou selecionadas (clique)
+  for(var ci=0; ci<n; ci++){
+    if(ci === hoverIndex || selecionadoSet.has(ci)){
+      ctx.fillStyle = selecionadoSet.has(ci) ? 'rgba(95,168,255,0.08)' : 'rgba(255,255,255,0.04)';
+      ctx.fillRect(padL + slot*ci, padT, slot, plotH);
+    }
   }
 
   const pontos = serie.map(function(d, i){
@@ -271,7 +286,7 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
       ctx.restore();
     }
     seg.forEach(function(p){
-      const destacado = p.i === hoverIndex;
+      const destacado = p.i === hoverIndex || selecionadoSet.has(p.i);
       ctx.save();
       ctx.shadowColor = 'rgba(255,255,255,0.7)';
       ctx.shadowBlur = destacado ? 8 : 4;
@@ -291,7 +306,7 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
   // eixo X
   serie.forEach(function(d, i){
     const x = padL + slot*i + slot/2;
-    const destacado = i === hoverIndex;
+    const destacado = i === hoverIndex || selecionadoSet.has(i);
     ctx.fillStyle = destacado ? '#FFFFFF' : 'rgba(139,145,163,0.75)';
     ctx.font = (destacado ? '700 10px' : '9px') + ' IBM Plex Mono';
     ctx.textAlign = 'center';
@@ -308,16 +323,19 @@ window.addEventListener('resize', desenharTudo);
 function configurarHover(canvasId, serieGetter, cor, glow){
   const canvas = document.getElementById(canvasId);
   canvas.style.cursor = 'pointer';
-  canvas.addEventListener('mousemove', function(e){
+
+  function idxNoMouse(e){
     const layout = LAYOUT[canvasId];
-    if(!layout) return;
+    if(!layout) return null;
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
-    let idx = null;
-    if(mx >= layout.padL && mx <= layout.w - layout.padR){
-      idx = Math.floor((mx - layout.padL) / layout.slot);
-      if(idx < 0 || idx >= layout.n) idx = null;
-    }
+    if(mx < layout.padL || mx > layout.w - layout.padR) return null;
+    const idx = Math.floor((mx - layout.padL) / layout.slot);
+    return (idx < 0 || idx >= layout.n) ? null : idx;
+  }
+
+  canvas.addEventListener('mousemove', function(e){
+    const idx = idxNoMouse(e);
     if(idx !== HOVER[canvasId]){
       HOVER[canvasId] = idx;
       desenharLinha(canvasId, serieGetter(), cor, glow);
@@ -328,6 +346,14 @@ function configurarHover(canvasId, serieGetter, cor, glow){
       HOVER[canvasId] = null;
       desenharLinha(canvasId, serieGetter(), cor, glow);
     }
+  });
+  canvas.addEventListener('click', function(e){
+    const idx = idxNoMouse(e);
+    if(idx === null) return;
+    const set = SELECIONADO[canvasId];
+    if(set.has(idx)) set.delete(idx); else set.add(idx);
+    desenharLinha(canvasId, serieGetter(), cor, glow);
+    renderKPIs();
   });
 }
 configurarHover('chartGeral', function(){ return SERIE_GERAL; }, '#5FA8FF', '#3B82F6');
