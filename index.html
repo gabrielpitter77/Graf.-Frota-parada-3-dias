@@ -44,6 +44,19 @@
   .kpi.accent-critico .value{color:var(--critico);}
   .kpi.accent-normal .value{color:var(--normal);}
 
+  .filter-bar{display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 16px; margin-bottom:18px;}
+  .filter-bar label{font-family:'IBM Plex Mono'; font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.08em; margin-right:6px;}
+  .filter-bar select{
+    background:var(--panel-2); border:1px solid var(--border); border-radius:4px;
+    color:var(--text); font-family:'IBM Plex Mono'; font-size:12.5px; padding:8px 10px; cursor:pointer;
+  }
+  .filter-bar select:focus{outline:2px solid var(--blue); outline-offset:1px;}
+  .filter-reset{
+    background:var(--panel-2); border:1px solid var(--border); border-radius:4px;
+    color:var(--text-muted); font-family:'IBM Plex Mono'; font-size:12px; padding:8px 14px; cursor:pointer;
+  }
+  .filter-reset:hover{color:var(--text); border-color:var(--text-dim);}
+
   .chart-panel{padding:22px; margin-bottom:20px;}
   .section-head{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px;}
   .section-head h2{font-family:'Space Grotesk'; font-size:14px; font-weight:600; text-transform:uppercase; letter-spacing:0.02em;}
@@ -75,6 +88,14 @@
 
 <main>
   <section class="kpi-grid" id="kpiGrid" aria-label="Indicadores"></section>
+
+  <div class="panel filter-bar">
+    <label for="filtroDe">De</label>
+    <select id="filtroDe"></select>
+    <label for="filtroAte">Até</label>
+    <select id="filtroAte"></select>
+    <button class="filter-reset" id="filtroReset">Ver período completo</button>
+  </div>
 
   <section class="panel chart-panel">
     <div class="section-head">
@@ -117,8 +138,6 @@ async function carregarDados(){
     const parsed = Papa.parse(text, { skipEmptyLines: false });
     const rows = parsed.data;
 
-    // localiza o cabeçalho pelas duas colunas "PARADOS" (B e E), que vêm
-    // limpas mesmo quando o título grudar na coluna A/D
     var headerIdx = -1;
     for(var h=0; h<rows.length; h++){
       const b = (rows[h][1] || '').trim().toUpperCase();
@@ -147,6 +166,54 @@ async function carregarDados(){
   }
 }
 
+/* ---------- Filtro de intervalo de datas (compartilhado pelos 2 gráficos) ---------- */
+let filtroDeIdx = 0;
+let filtroAteIdx = 0;
+
+function popularFiltros(){
+  const referencia = SERIE_GERAL.length >= SERIE_EXCETO.length ? SERIE_GERAL : SERIE_EXCETO;
+  const selDe = document.getElementById('filtroDe');
+  const selAte = document.getElementById('filtroAte');
+  selDe.innerHTML = '';
+  selAte.innerHTML = '';
+  referencia.forEach(function(d, i){
+    const optD = document.createElement('option'); optD.value = i; optD.textContent = d.data; selDe.appendChild(optD);
+    const optA = document.createElement('option'); optA.value = i; optA.textContent = d.data; selAte.appendChild(optA);
+  });
+  filtroDeIdx = 0;
+  filtroAteIdx = referencia.length - 1;
+  selDe.value = filtroDeIdx;
+  selAte.value = filtroAteIdx;
+
+  function aplicarFiltro(){
+    // ao mudar o período, zera seleção/hover pra não referenciar índice de dia que saiu da tela
+    HOVER.chartGeral = null; HOVER.chartExceto = null;
+    SELECIONADO.chartGeral.clear(); SELECIONADO.chartExceto.clear();
+    desenharTudo();
+    renderKPIs();
+  }
+
+  selDe.addEventListener('change', function(){
+    filtroDeIdx = parseInt(selDe.value, 10);
+    if(filtroDeIdx > filtroAteIdx){ filtroAteIdx = filtroDeIdx; selAte.value = filtroAteIdx; }
+    aplicarFiltro();
+  });
+  selAte.addEventListener('change', function(){
+    filtroAteIdx = parseInt(selAte.value, 10);
+    if(filtroAteIdx < filtroDeIdx){ filtroDeIdx = filtroAteIdx; selDe.value = filtroDeIdx; }
+    aplicarFiltro();
+  });
+  document.getElementById('filtroReset').addEventListener('click', function(){
+    filtroDeIdx = 0; filtroAteIdx = referencia.length - 1;
+    selDe.value = filtroDeIdx; selAte.value = filtroAteIdx;
+    aplicarFiltro();
+  });
+}
+
+function serieFiltrada(serie){
+  return serie.slice(filtroDeIdx, filtroAteIdx + 1);
+}
+
 /* ---------- KPIs ---------- */
 function renderKPIs(){
   const comValorG = SERIE_GERAL.filter(d => d.valor !== null);
@@ -165,11 +232,13 @@ function renderKPIs(){
 
   const selG = SELECIONADO.chartGeral, selE = SELECIONADO.chartExceto;
   if(selG.size > 0){
-    const soma = Array.from(selG).reduce((s,i)=> s + (SERIE_GERAL[i] && SERIE_GERAL[i].valor || 0), 0);
+    const serieG = serieFiltrada(SERIE_GERAL);
+    const soma = Array.from(selG).reduce((s,i)=> s + (serieG[i] && serieG[i].valor || 0), 0);
     kpiData.push({ label: 'Selecionado (' + selG.size + ' dia' + (selG.size>1?'s':'') + ') — Geral', value: soma, accent: 'blue' });
   }
   if(selE.size > 0){
-    const soma = Array.from(selE).reduce((s,i)=> s + (SERIE_EXCETO[i] && SERIE_EXCETO[i].valor || 0), 0);
+    const serieE = serieFiltrada(SERIE_EXCETO);
+    const soma = Array.from(selE).reduce((s,i)=> s + (serieE[i] && serieE[i].valor || 0), 0);
     kpiData.push({ label: 'Selecionado (' + selE.size + ' dia' + (selE.size>1?'s':'') + ') — Exceto críticos', value: soma, accent: 'normal' });
   }
 
@@ -181,7 +250,7 @@ function renderKPIs(){
   }).join('');
 }
 
-/* ---------- Gráfico de linha com brilho (reaproveitado do painel de Disponibilidade) ---------- */
+/* ---------- Gráfico de linha com brilho ---------- */
 let HOVER = { chartGeral: null, chartExceto: null };
 let SELECIONADO = { chartGeral: new Set(), chartExceto: new Set() };
 let LAYOUT = {};
@@ -220,7 +289,6 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
   const maxV = Math.max(...valores) * 1.12;
   function y(v){ return padT + plotH - (v - minV) / (maxV - minV) * plotH; }
 
-  // grade horizontal pontilhada
   ctx.strokeStyle = 'rgba(255,255,255,0.06)';
   ctx.lineWidth = 1;
   ctx.setLineDash([2,4]);
@@ -230,7 +298,6 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
   });
   ctx.setLineDash([]);
 
-  // faixa de destaque das colunas em foco (hover) ou selecionadas (clique)
   for(var ci=0; ci<n; ci++){
     if(ci === hoverIndex || selecionadoSet.has(ci)){
       ctx.fillStyle = selecionadoSet.has(ci) ? 'rgba(95,168,255,0.08)' : 'rgba(255,255,255,0.04)';
@@ -303,7 +370,6 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
     });
   });
 
-  // eixo X
   serie.forEach(function(d, i){
     const x = padL + slot*i + slot/2;
     const destacado = i === hoverIndex || selecionadoSet.has(i);
@@ -315,8 +381,8 @@ function desenharLinha(canvasId, serie, corLinha, corGlow){
 }
 
 function desenharTudo(){
-  desenharLinha('chartGeral', SERIE_GERAL, '#5FA8FF', '#3B82F6');
-  desenharLinha('chartExceto', SERIE_EXCETO, '#4FE0BC', '#2ED3A6');
+  desenharLinha('chartGeral', serieFiltrada(SERIE_GERAL), '#5FA8FF', '#3B82F6');
+  desenharLinha('chartExceto', serieFiltrada(SERIE_EXCETO), '#4FE0BC', '#2ED3A6');
 }
 window.addEventListener('resize', desenharTudo);
 
@@ -356,8 +422,8 @@ function configurarHover(canvasId, serieGetter, cor, glow){
     renderKPIs();
   });
 }
-configurarHover('chartGeral', function(){ return SERIE_GERAL; }, '#5FA8FF', '#3B82F6');
-configurarHover('chartExceto', function(){ return SERIE_EXCETO; }, '#4FE0BC', '#2ED3A6');
+configurarHover('chartGeral', function(){ return serieFiltrada(SERIE_GERAL); }, '#5FA8FF', '#3B82F6');
+configurarHover('chartExceto', function(){ return serieFiltrada(SERIE_EXCETO); }, '#4FE0BC', '#2ED3A6');
 
 function tickClock(){
   const now = new Date();
@@ -375,6 +441,7 @@ carregarDados().then(function(){
   } else {
     document.getElementById('statusGeral').textContent = SERIE_GERAL.length ? (SERIE_GERAL[0].data + ' – ' + SERIE_GERAL[SERIE_GERAL.length-1].data) : 'sem dados';
     document.getElementById('statusExceto').textContent = SERIE_EXCETO.length ? (SERIE_EXCETO[0].data + ' – ' + SERIE_EXCETO[SERIE_EXCETO.length-1].data) : 'sem dados';
+    popularFiltros();
   }
   renderKPIs();
   desenharTudo();
