@@ -180,8 +180,28 @@ function popularFiltros(){
     const optD = document.createElement('option'); optD.value = i; optD.textContent = d.data; selDe.appendChild(optD);
     const optA = document.createElement('option'); optA.value = i; optA.textContent = d.data; selAte.appendChild(optA);
   });
-  filtroDeIdx = 0;
-  filtroAteIdx = referencia.length - 1;
+
+  // padrão ao abrir: do dia 1º do mês atual até hoje (ou até o último dia
+  // com dado, se hoje ainda não tiver sido preenchido na planilha) — mas
+  // continua 100% ajustável pelos seletores abaixo
+  const hoje = new Date();
+  const dataInicioMes = '1/' + (hoje.getMonth()+1);
+  const dataHoje = hoje.getDate() + '/' + (hoje.getMonth()+1);
+
+  let idxInicio = referencia.findIndex(function(d){ return d.data === dataInicioMes; });
+  if(idxInicio === -1) idxInicio = 0;
+
+  let idxFim = referencia.findIndex(function(d){ return d.data === dataHoje; });
+  if(idxFim === -1){
+    for(var i = referencia.length - 1; i >= 0; i--){
+      if(referencia[i].valor !== null){ idxFim = i; break; }
+    }
+    if(idxFim === -1) idxFim = referencia.length - 1;
+  }
+  if(idxFim < idxInicio) idxFim = idxInicio;
+
+  filtroDeIdx = idxInicio;
+  filtroAteIdx = idxFim;
   selDe.value = filtroDeIdx;
   selAte.value = filtroAteIdx;
 
